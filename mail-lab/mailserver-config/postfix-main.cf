@@ -1,0 +1,3 @@
+# The lab only accepts host connections through loopback-published Docker ports.
+# Avoid reverse/forward DNS lookup noise for the Docker bridge gateway.
+smtpd_peername_lookup = no

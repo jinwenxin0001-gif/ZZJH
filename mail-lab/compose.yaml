@@ -1,0 +1,78 @@
+name: ${COMPOSE_PROJECT_NAME:-zzjh-mail-lab}
+
+services:
+  mailserver:
+    image: ghcr.io/docker-mailserver/docker-mailserver:15.1.0
+    container_name: zzjh-mailserver
+    hostname: ${MAIL_HOSTNAME:-mail.zzjh.test}
+    env_file:
+      - mailserver.env
+    environment:
+      SSL_TYPE: manual
+      SSL_CERT_PATH: /tmp/dms-certs/mail.zzjh.test.crt
+      SSL_KEY_PATH: /tmp/dms-certs/mail.zzjh.test.key
+      ENABLE_POP3: "1"
+    ports:
+      - "127.0.0.1:2525:25"
+      - "127.0.0.1:1587:587"
+      - "127.0.0.1:1143:143"
+      - "127.0.0.1:1993:993"
+      - "127.0.0.1:1110:110"
+      - "127.0.0.1:1995:995"
+    volumes:
+      - ./data/dms/mail-data:/var/mail
+      - ./data/dms/mail-state:/var/mail-state
+      - ./data/dms/mail-logs:/var/log/mail
+      - ./data/dms/config:/tmp/docker-mailserver
+      - ./mailserver-config/postfix-main.cf:/tmp/docker-mailserver/postfix-main.cf:ro
+      - ./certs/server:/tmp/dms-certs:ro
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    stop_grace_period: 1m
+    healthcheck:
+      test: ["CMD-SHELL", "ss --listening --tcp | grep -q ':smtp '"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    networks:
+      mail-lab:
+        aliases:
+          - mail.zzjh.test
+
+  roundcube:
+    build:
+      context: .
+      dockerfile: roundcube/Dockerfile
+    image: zzjh/roundcube-mail-lab:1.6
+    container_name: zzjh-roundcube
+    depends_on:
+      mailserver:
+        condition: service_healthy
+    environment:
+      ROUNDCUBEMAIL_DEFAULT_HOST: tls://mail.zzjh.test
+      ROUNDCUBEMAIL_DEFAULT_PORT: "143"
+      ROUNDCUBEMAIL_SMTP_SERVER: tls://mail.zzjh.test
+      ROUNDCUBEMAIL_SMTP_PORT: "587"
+      ROUNDCUBEMAIL_USERNAME_DOMAIN: ${MAIL_DOMAIN:-zzjh.test}
+      ROUNDCUBEMAIL_UPLOAD_MAX_FILESIZE: 25M
+      ROUNDCUBEMAIL_PLUGINS: archive,zipdownload
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./data/roundcube/db:/var/roundcube/db
+      - ./roundcube/config:/var/roundcube/config:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "php -r 'exit(@file_get_contents(\"http://127.0.0.1/\") === false ? 1 : 0);'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    networks:
+      - mail-lab
+
+networks:
+  mail-lab:
+    name: zzjh-mail-lab
+    driver: bridge

@@ -1,0 +1,8 @@
+.env
+.env.local
+certs/ca/
+certs/server/
+data/
+artifacts/
+__pycache__/
+tests/__pycache__/
