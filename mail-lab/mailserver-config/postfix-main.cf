@@ -1,3 +1,7 @@
 # The lab only accepts host connections through loopback-published Docker ports.
 # Avoid reverse/forward DNS lookup noise for the Docker bridge gateway.
 smtpd_peername_lookup = no
+
+# Route queued mail through the Magika attachment analyzer. The analyzer
+# returns mail through the internal-only Postfix listener on TCP 10026.
+content_filter = magikafilter:[attachment-analyzer]:10025

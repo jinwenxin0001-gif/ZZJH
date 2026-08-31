@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import ssl
 import sys
@@ -24,6 +25,7 @@ MAIL_CHECKS = (
     (1110, b"+OK", False),
     (1995, b"+OK", True),
 )
+ROUNDCUBE_PORT = int(os.environ.get("ROUNDCUBE_HOST_PORT", "8080"))
 
 
 def protocol_ready(port: int, expected_prefix: bytes, implicit_tls: bool) -> bool:
@@ -43,7 +45,9 @@ def protocol_ready(port: int, expected_prefix: bytes, implicit_tls: bool) -> boo
 
 def http_ready() -> bool:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8080/", timeout=3) as response:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{ROUNDCUBE_PORT}/", timeout=3
+        ) as response:
             return response.status == 200
     except Exception:
         return False

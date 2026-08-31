@@ -1,6 +1,40 @@
 name: ${COMPOSE_PROJECT_NAME:-zzjh-mail-lab}
 
 services:
+  attachment-analyzer:
+    build:
+      context: .
+      dockerfile: analyzer/Dockerfile
+    image: zzjh/attachment-analyzer:1.0
+    container_name: zzjh-attachment-analyzer
+    environment:
+      ANALYZER_LISTEN_PORT: "10025"
+      ANALYZER_MAX_MESSAGE_BYTES: "31457280"
+      ANALYZER_MAX_ATTACHMENTS: "100"
+      ANALYZER_MAX_ATTACHMENT_BYTES: "26214400"
+      ANALYZER_INFERENCE_THREADS: "2"
+      ANALYZER_RESULTS_PATH: /data/results/attachment-analysis.jsonl
+      REINJECT_HOST: mailserver
+      REINJECT_PORT: "10026"
+      REINJECT_TIMEOUT_SECONDS: "30"
+    expose:
+      - "10025"
+    volumes:
+      - analyzer-results:/data/results
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2.0
+    networks:
+      - mail-lab
+
   mailserver:
     image: ghcr.io/docker-mailserver/docker-mailserver:15.1.0
     container_name: zzjh-mailserver
@@ -25,6 +59,7 @@ services:
       - ./data/dms/mail-logs:/var/log/mail
       - ./data/dms/config:/tmp/docker-mailserver
       - ./mailserver-config/postfix-main.cf:/tmp/docker-mailserver/postfix-main.cf:ro
+      - ./mailserver-config/user-patches.sh:/tmp/docker-mailserver/user-patches.sh:ro
       - ./certs/server:/tmp/dms-certs:ro
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
@@ -39,6 +74,9 @@ services:
       mail-lab:
         aliases:
           - mail.zzjh.test
+    depends_on:
+      attachment-analyzer:
+        condition: service_healthy
 
   roundcube:
     build:
@@ -58,7 +96,7 @@ services:
       ROUNDCUBEMAIL_UPLOAD_MAX_FILESIZE: 25M
       ROUNDCUBEMAIL_PLUGINS: archive,zipdownload
     ports:
-      - "127.0.0.1:8080:80"
+      - "127.0.0.1:${ROUNDCUBE_HOST_PORT:-8080}:80"
     volumes:
       - ./data/roundcube/db:/var/roundcube/db
       - ./roundcube/config:/var/roundcube/config:ro
@@ -76,3 +114,7 @@ networks:
   mail-lab:
     name: zzjh-mail-lab
     driver: bridge
+
+volumes:
+  analyzer-results:
+    name: zzjh-analyzer-results

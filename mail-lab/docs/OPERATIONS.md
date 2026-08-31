@@ -8,7 +8,7 @@
 - Python 3（测试脚本仅使用标准库）；
 - OpenSSL 和 curl；
 - 当前用户具有 Docker daemon 访问权限；
-- 主机端口 2525、1587、1143、1993、1110、1995、8080 未占用。
+- 主机端口 2525、1587、1143、1993、1110、1995，以及 `.env` 中的 `ROUNDCUBE_HOST_PORT` 未占用。
 
 ## 首次启动
 
@@ -23,7 +23,9 @@ cd /data/xjw/workspace/project/zzjh/mail-lab
 ./scripts/generate-certs.sh
 docker compose config --quiet
 docker compose pull mailserver
-docker compose build roundcube
+docker compose build attachment-analyzer roundcube
+./scripts/test-analyzer-unit.sh
+docker compose up -d attachment-analyzer
 docker compose up -d mailserver
 ./scripts/create-accounts.sh
 docker compose up -d roundcube
@@ -46,7 +48,15 @@ docker compose logs --tail=200 mailserver
 docker compose logs --tail=200 roundcube
 ```
 
-两个服务都应显示为 `healthy`。
+三个服务都应显示为 `healthy`。
+
+当前主机的 8080 端口若已被其他应用占用，可在 `.env` 中设置：
+
+```dotenv
+ROUNDCUBE_HOST_PORT=18080
+```
+
+修改后执行 `docker compose up -d --force-recreate roundcube`。本环境当前使用 18080。
 
 ## 账号管理
 
@@ -95,6 +105,35 @@ docker compose config
 
 Docker Mailserver 对原容器执行普通 `restart` 时会跳过大部分初始化步骤。因此，修改 `mailserver-config/postfix-main.cf` 后应重新创建 mailserver 容器；邮件和状态位于绑定目录中，不会因重新创建容器而丢失。
 
+修改 `mailserver-config/user-patches.sh` 中的过滤传输或 10026 回注服务后，同样必须重新创建 mailserver 容器。可用以下命令核对生效配置：
+
+```bash
+docker compose exec mailserver postconf -h content_filter
+docker compose exec mailserver postconf -Mf | grep -E '^(magikafilter|10026)'
+docker compose exec mailserver postconf -P | grep '^10026/'
+```
+
+预期 `content_filter` 为 `magikafilter:[attachment-analyzer]:10025`。
+
+## 附件分析维护
+
+```bash
+# 查看分析器日志
+docker compose logs -f attachment-analyzer
+
+# 查看最近五条 JSONL 结果
+docker compose exec attachment-analyzer \
+  tail -n 5 /data/results/attachment-analysis.jsonl
+
+# 模型和解析单元测试
+./scripts/test-analyzer-unit.sh
+
+# 分析器停机与恢复测试
+./scripts/test-analyzer-outage.sh
+```
+
+更新 Magika 版本时，应修改 `analyzer/requirements.txt`，阅读官方变更记录，重新构建镜像，并至少运行单元测试、完整功能测试和 1000 封连续投递测试。`analysis.py` 对 ONNX Session 的线程限制依赖当前锁定版本，升级时必须重点复核。
+
 ## 数据备份
 
 需要备份的目录：
@@ -104,7 +143,8 @@ Docker Mailserver 对原容器执行普通 `restart` 时会跳过大部分初始
 - `data/dms/config`：账号和别名配置；
 - `mailserver-config`：可复现的 Postfix 静态配置；
 - `data/roundcube/db`：Webmail 元数据；
-- `certs/ca` 和 `certs/server`：实验 CA 与服务证书。
+- `certs/ca` 和 `certs/server`：实验 CA 与服务证书；
+- Docker 卷 `zzjh-analyzer-results`：附件分析 JSONL 元数据。
 
 私钥文件权限应保持为 `600`，不得提交到代码仓库或公开共享。
 
@@ -112,10 +152,12 @@ Docker Mailserver 对原容器执行普通 `restart` 时会跳过大部分初始
 
 - 容器输出：`docker compose logs`；
 - 邮件日志：`data/dms/mail-logs`；
+- 附件分析器日志：`docker compose logs attachment-analyzer`；
+- 附件分析结果：`zzjh-analyzer-results` 卷中的 `attachment-analysis.jsonl`；
 - 自动化测试结果：`artifacts`。
 
 发生投递问题时，通过主题或 Message-ID 在日志中关联 SMTP、投递和读取过程。
 
 ## 清理
 
-停止容器不会删除数据。确需重建全新实验环境时，应先备份，再明确删除 `data/`。不要使用宽泛路径、未展开变量或通配符执行递归删除。
+停止容器不会删除数据。确需重建全新实验环境时，应先备份，再明确删除 `data/` 和 `zzjh-analyzer-results` 卷。不要使用 `docker compose down -v`，也不要使用宽泛路径、未展开变量或通配符执行递归删除。

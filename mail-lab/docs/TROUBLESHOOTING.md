@@ -91,7 +91,61 @@ docker compose logs --since=10m mailserver
 docker compose exec mailserver setup email list
 ```
 
-重点检查：收件人是否属于 `zzjh.test`、账号是否存在、邮件是否被退回、Maildir 是否有权限问题。
+重点检查：收件人是否属于 `zzjh.test`、账号是否存在、邮件是否被退回、Maildir 是否有权限问题，以及邮件是否因分析器不可用而留在 Postfix 队列。
+
+## 邮件停留在 magikafilter 队列
+
+检查：
+
+```bash
+docker compose ps attachment-analyzer
+docker compose logs --tail=200 attachment-analyzer
+docker compose exec mailserver postqueue -p
+docker compose exec mailserver postconf -h content_filter
+```
+
+常见原因：
+
+- 分析器容器未启动或不健康；
+- Magika/ONNX 初始化失败；
+- 附件数量或大小超过保护限制；
+- JSONL 结果卷不可写；
+- mailserver 的 10026 内部回注服务没有加载。
+
+恢复服务后刷新延迟队列：
+
+```bash
+docker compose start attachment-analyzer
+docker compose exec mailserver postqueue -f
+```
+
+不要通过清空 `content_filter` 临时绕过分析器，这会破坏实验可追溯性。
+
+## 10026 回注端口无 SMTP Banner
+
+修改 `user-patches.sh` 后，普通 `restart` 不会重新执行完整初始化。应执行：
+
+```bash
+docker compose up -d --force-recreate mailserver
+docker compose exec mailserver postconf -Mf | grep '^10026'
+docker compose exec attachment-analyzer python -c \
+  "import socket; s=socket.create_connection(('mailserver',10026),5); print(s.recv(256))"
+```
+
+10026 不应映射到宿主机。其接收限制必须包含 `reject_unauth_destination`，否则 Postfix 会拒绝启动该 smtpd 进程，或者形成内部开放中继风险。
+
+## ONNX Runtime 提示 Resource temporarily unavailable
+
+高核数主机上，ONNX Runtime、NumPy/OpenBLAS 默认可能创建大量线程并触发容器 PID 限制。本项目通过 `BoundedMagika` 把 `intra_op_num_threads` 固定为 2、`inter_op_num_threads` 固定为 1，并通过容器环境变量把 OpenBLAS/OMP 辅助线程固定为 1。不要仅为消除错误而移除 `pids_limit`；升级 Magika 或 ONNX Runtime 后应重新运行：
+
+```bash
+docker compose build attachment-analyzer
+./scripts/test-analyzer-unit.sh
+```
+
+## Docker Hub 镜像代理返回 403
+
+若构建 Python 或 Roundcube 镜像时，日志显示配置的镜像代理返回 `403 Forbidden`，应修复 Docker daemon 的镜像源，或使用经过摘要/校验和验证的官方镜像导入本地。不要从不明第三方仓库替换基础镜像。本项目的 Python 基础镜像已在 Dockerfile 中固定官方 manifest digest。
 
 ## 日志提示宿主机名无法正向解析
 

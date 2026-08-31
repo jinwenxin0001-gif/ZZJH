@@ -17,7 +17,8 @@ import uuid
 from pathlib import Path
 
 
-URL = "http://127.0.0.1:8080/"
+ROUNDCUBE_PORT = int(os.environ.get("ROUNDCUBE_HOST_PORT", "8080"))
+URL = f"http://127.0.0.1:{ROUNDCUBE_PORT}/"
 LAB_DIR = Path(__file__).resolve().parents[1]
 CA_FILE = LAB_DIR / "certs" / "ca" / "zzjh-mail-lab-ca.crt"
 

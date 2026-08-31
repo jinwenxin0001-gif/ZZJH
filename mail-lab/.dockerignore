@@ -9,3 +9,5 @@ scripts
 certs/ca/*.key
 certs/server
 任务书
+!analyzer/tests
+!analyzer/tests/**

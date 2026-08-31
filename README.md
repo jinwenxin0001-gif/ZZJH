@@ -5,7 +5,7 @@
 ## 目录
 
 - [`任务书/`](任务书/)：企业任务书原文及面向高校研究项目的任务拆解；
-- [`mail-lab/`](mail-lab/)：基于 Docker Mailserver 和 Roundcube 的基础邮件实验环境、自动化测试与技术文档。
+- [`mail-lab/`](mail-lab/)：基于 Docker Mailserver、Roundcube 和 Magika 的邮件实验环境、附件真实类型分析、自动化测试与技术文档。
 
 基础邮件环境的部署、账号、端口和测试说明见 [`mail-lab/README.md`](mail-lab/README.md)。
 

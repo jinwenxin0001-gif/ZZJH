@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import re
+import os
 import subprocess
 import sys
 
 
-EXPECTED_PORTS = {2525, 1587, 1143, 1993, 1110, 1995, 8080}
+ROUNDCUBE_PORT = int(os.environ.get("ROUNDCUBE_HOST_PORT", "8080"))
+EXPECTED_PORTS = {2525, 1587, 1143, 1993, 1110, 1995, ROUNDCUBE_PORT}
 
 
 def main() -> int:

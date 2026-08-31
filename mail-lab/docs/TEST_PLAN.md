@@ -14,7 +14,9 @@
 8. 不允许未认证的外部到外部邮件中继；
 9. 容器重启后邮件仍然存在；
 10. 配置、测试和证书生成过程可重复执行；
-11. 单次认证连接连续提交 1000 封邮件，且全部可从 IMAP 收件箱检索。
+11. 单次认证连接连续提交 1000 封邮件，且全部可从 IMAP 收件箱检索；
+12. 附件真实类型、SHA-256、声明差异和结构化记录正确；
+13. 分析器不可用时邮件不会绕过，恢复后可以继续投递。
 
 ## 自动化测试
 
@@ -40,13 +42,40 @@
 
 `tests/open_relay_test.py` 使用未认证连接尝试从外部域向另一个外部域投递。RCPT 阶段必须返回 4xx 或 5xx。
 
+### Magika 附件类型测试
+
+容器内单元测试：
+
+```bash
+./scripts/test-analyzer-unit.sh
+```
+
+测试 PNG、PDF、TXT 的正确声明，ZIP 伪装成 PDF 的双重不一致，以及外部伪造 `X-ZZJH-*` 分析头的移除。
+
+`tests/attachment_analysis_test.py` 随 `run-tests.sh` 执行真实链路：
+
+1. Alice 发送实际为 ZIP、但声明为 `application/pdf` 且命名为 `invoice.pdf` 的附件；
+2. 邮件经过 Postfix 第一次队列、Magika 分析器和 10026 回注；
+3. Bob 从 IMAP 取回邮件；
+4. 验证模型标签为 `zip`；
+5. 验证 MIME 和扩展名两项不一致；
+6. 验证邮件头、JSONL、SHA-256 和附件原始字节一致。
+
+### 分析器故障恢复测试
+
+```bash
+./scripts/test-analyzer-outage.sh
+```
+
+脚本停止分析器后提交邮件，要求邮件保留在 Postfix 队列且 Bob 收件箱中不存在；重新启动分析器并刷新队列后，要求邮件携带分析头到达。脚本使用 `finally` 恢复分析器，避免普通断言失败导致服务长期停止。
+
 ### 监听地址测试
 
 `tests/listener_test.py` 检查七个主机端口，要求全部存在且绑定地址均为 `127.0.0.1`。
 
 ### Webmail 测试
 
-测试脚本访问 `http://127.0.0.1:8080/`，要求 HTTP 状态为 200。`tests/roundcube_login_test.py` 获取真实 CSRF Token，使用 Alice 账号提交登录表单，进入邮箱页面后通过 Roundcube 写信页面向 Bob 发信，并从 Bob 的 IMAP 收件箱确认到达。人工浏览器检查仅用于界面体验确认，不作为协议验收的必要条件。
+测试脚本访问 `http://127.0.0.1:${ROUNDCUBE_HOST_PORT}/`，要求 HTTP 状态为 200。`tests/roundcube_login_test.py` 获取真实 CSRF Token，使用 Alice 账号提交登录表单，进入邮箱页面后通过 Roundcube 写信页面向 Bob 发信，并从 Bob 的 IMAP 收件箱确认到达。人工浏览器检查仅用于界面体验确认，不作为协议验收的必要条件。
 
 ### 持久化测试
 
@@ -67,6 +96,8 @@
 ```
 
 脚本由 Alice 在同一条 SMTP Submission 认证连接上连续提交 1000 封小型测试邮件，使用唯一批次标识在 Bob 的 IMAP 收件箱中检索，并要求接收数量恰好为 1000。该测试用于验证基础环境的连续投递能力，不作为生产性能基准。
+
+启用 Magika 过滤链路后必须重新执行该测试，以覆盖每封邮件的 MIME 解析、JSONL 记录、第二次 SMTP 入队和最终投递。
 
 可通过环境变量临时调整数量，例如 `BATCH_SIZE=100 ./scripts/test-batch.sh`；正式验收仍使用默认的 1000 封。
 
@@ -94,10 +125,12 @@ openssl verify \
 ## 通过标准
 
 - 所有自动化测试退出码为 0；
-- Compose 中两个服务均为 healthy；
+- Compose 中三个服务均为 healthy；
 - 邮件内容和附件没有损坏；
 - 开放中继测试被拒绝；
 - 重启后邮件数量不变；
 - 连续提交的 1000 封测试邮件全部到达；
+- Magika 正确识别伪装附件并输出可关联的结构化记录；
+- 分析器故障期间邮件延迟而不绕过，恢复后成功投递；
 - Roundcube 登录及写信投递成功；
 - 仅回环地址暴露主机端口。
